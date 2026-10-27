@@ -1,29 +1,83 @@
-import { crearEquipo, listarCategorias } from "../modules/equipos.js";
-import { mostrarMensaje } from "./mensajes.js";
+// src/components/formulario.js
+import { crearEquipo } from '../modules/equipos.js';
+import { request } from '../modules/api.js';
 
-const $form = document.querySelector("#form-equipo");
-const $selectCategoria = document.querySelector("#categoria_id");
-const $btnGuardar = document.querySelector("#btn-guardar");
+export async function initFormulario(onEquipoGuardado) {
+    const form = document.querySelector('#form-equipo'); // Ajustá según el ID de tu formulario en el HTML
+    const selectCategoria = document.querySelector('#categoria_id');
+    const btnGuardar = form?.querySelector('button[type="submit"]');
 
-/**
- * TODO [F3] Formulario de registro de equipos.
- *
- * iniciarFormulario({ alGuardar }):
- *  1. Llene el <select id="categoria_id"> con listarCategorias()
- *     (cree cada <option> con createElement, value = id, texto = nombre).
- *  2. Al enviar el formulario (submit):
- *     - Evite el envío tradicional.
- *     - Limpie los errores anteriores: textContent de [data-error] y aria-invalid de los campos.
- *     - Construya el objeto con FormData. categoria_id y costo_interno deben ir como números.
- *     - Deshabilite #btn-guardar y cambie su texto a "Guardando…" mientras espera.
- *     - Llame a crearEquipo(datos).
- *     - Éxito: limpie el formulario, mostrarMensaje("exito", "Equipo <codigo> registrado.")
- *              y llame a alGuardar().
- *     - 422: por cada campo de error.datos.errors, escriba el PRIMER mensaje en
- *            el <p data-error="<campo>"> y marque el campo con aria-invalid="true".
- *     - Otro error: mostrarMensaje("error", ...).
- *     - Siempre (finally): rehabilite el botón y restaure su texto.
- */
-export const iniciarFormulario = ({ alGuardar }) => {
-  // TODO
-};
+    if (!form) return;
+
+    // 1. Cargar las categorías en el select al iniciar
+    try {
+        const categoriasData = await request('/categorias');
+        if (selectCategoria && categoriasData.data) {
+            selectCategoria.innerHTML = '<option value="">Seleccione una categoría</option>';
+            categoriasData.data.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.nombre;
+                selectCategoria.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error al cargar categorías:', error);
+    }
+
+    // 2. Manejar el envío del formulario
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // Limpiar errores previos y aria-invalid
+        form.querySelectorAll('[data-error]').forEach(el => el.textContent = '');
+        form.querySelectorAll('[aria-invalid="true"]').forEach(el => el.removeAttribute('aria-invalid'));
+
+        const formData = new FormData(form);
+        const data = {};
+
+        formData.forEach((value, key) => {
+            if (key === 'categoria_id' || key === 'costo_interno') {
+                data[key] = value !== '' ? Number(value) : value;
+            } else {
+                data[key] = value;
+            }
+        });
+
+        // Deshabilitar el botón y mostrar estado de carga
+        const textoOriginal = btnGuardar.textContent;
+        btnGuardar.disabled = true;
+        btnGuardar.textContent = 'Guardando...';
+
+        try {
+            await crearEquipo(data);
+            
+            // Limpiar formulario y recargar lista
+            form.reset();
+            if (typeof onEquipoGuardado === 'function') {
+                onEquipoGuardado();
+            }
+        } catch (error) {
+            if (error.status === 422 && error.data && error.data.errors) {
+                // Mapear los errores 422 al campo correspondiente
+                Object.keys(error.data.errors).forEach(campo => {
+                    const mensajeError = error.data.errors[campo][0];
+                    const inputField = form.querySelector(`[name="${campo}"]`);
+                    const errorContainer = form.querySelector(`[data-error="${campo}"]`);
+
+                    if (inputField) {
+                        inputField.setAttribute('aria-invalid', 'true');
+                    }
+                    if (errorContainer) {
+                        errorContainer.textContent = mensajeError;
+                    }
+                });
+            } else {
+                alert(error.data?.mensaje || 'Ocurrió un error al guardar el equipo.');
+            }
+        } finally {
+            btnGuardar.disabled = false;
+            btnGuardar.textContent = textoOriginal;
+        }
+    });
+}
